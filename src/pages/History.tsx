@@ -18,6 +18,15 @@ export default function HistoryPage({ s }: { s: AppState }) {
     } finally { setBusy(""); }
   }
 
+  async function clear(what: "uploads" | "runs" | "settings" | "all", id?: string, label?: string) {
+    const msg = id ? `Delete this ${label}? This cannot be undone.`
+      : { uploads: "Delete ALL uploads?", runs: "Delete ALL live check history?", settings: "Reset settings and campaigns to defaults?", all: "Delete EVERYTHING (uploads, live checks and settings)?" }[what] + " This cannot be undone.";
+    if (!window.confirm(msg)) return;
+    setBusy(`clear-${what}-${id ?? ""}`);
+    try { await api.clear(what, id); window.location.reload(); }
+    catch (e) { window.alert(`Could not delete: ${String(e)}`); setBusy(""); }
+  }
+
   return (
     <>
       <div className="topbar"><h2>History</h2></div>
@@ -29,17 +38,29 @@ export default function HistoryPage({ s }: { s: AppState }) {
               <td className="row" style={{ justifyContent: "flex-end" }}>
                 {s.snapshot?.id === m.id ? <span className="pill ok">Current base</span> : <button className="btn small ghost" onClick={() => s.useSnapshot(m.id)}>Use as base</button>}
                 <button className="btn small ghost" disabled={busy === m.id} onClick={() => files(m.id)}>{busy === m.id ? "Preparing…" : "Campaign files"}</button>
+                <button className="btn small danger" disabled={!!busy} onClick={() => clear("uploads", m.id, "upload")}>Delete</button>
               </td></tr>
           ))}</tbody></table>
         {!s.snapshots.length && <p className="muted">No uploads yet.</p>}
       </div>
       <div className="card">
         <h3>Live check runs</h3>
-        <table><thead><tr><th>Run at</th><th>Scope</th><th className="num">Articles</th><th className="num">Failed</th></tr></thead>
+        <table><thead><tr><th>Run at</th><th>Scope</th><th className="num">Articles</th><th className="num">Failed</th><th></th></tr></thead>
           <tbody>{s.runs.map((r) => (
-            <tr key={r.id}><td>{new Date(r.at).toLocaleString("en-IN")}</td><td>{r.scope}</td><td className="num">{r.articles}</td><td className="num">{r.failed}</td></tr>
+            <tr key={r.id}><td>{new Date(r.at).toLocaleString("en-IN")}</td><td>{r.scope}</td><td className="num">{r.articles}</td><td className="num">{r.failed}</td>
+              <td style={{ textAlign: "right" }}><button className="btn small danger" disabled={!!busy} onClick={() => clear("runs", r.id, "live check")}>Delete</button></td></tr>
           ))}</tbody></table>
         {!s.runs.length && <p className="muted">No checks yet.</p>}
+      </div>
+      <div className="card">
+        <h3>Clear data</h3>
+        <p className="muted">Use this to start fresh (for example, before a new sale or a new client). Deleted data cannot be recovered.</p>
+        <div className="row">
+          <button className="btn small danger" disabled={!!busy} onClick={() => clear("runs")}>Clear live check history</button>
+          <button className="btn small danger" disabled={!!busy} onClick={() => clear("uploads")}>Clear all uploads</button>
+          <button className="btn small danger" disabled={!!busy} onClick={() => clear("settings")}>Reset settings to defaults</button>
+          <button className="btn danger" disabled={!!busy} onClick={() => clear("all")}>Clear everything</button>
+        </div>
       </div>
     </>
   );

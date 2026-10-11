@@ -67,6 +67,29 @@ export default async (req: Request, _ctx: Context) => {
         return json({ ok: true });
       }
     }
+    if (parts[0] === "data" && req.method === "DELETE") {
+      // what = uploads | runs | settings | all ; optional id deletes a single upload/run
+      const what = url.searchParams.get("what") ?? "";
+      const id = url.searchParams.get("id");
+      const removeAll = async (prefix: string) => {
+        const { blobs } = await s.list({ prefix });
+        await Promise.all(blobs.map((b) => s.delete(b.key)));
+        return blobs.length;
+      };
+      const dropFromIndex = async (key: string, rid: string) => {
+        const idx = ((await s.get(key, { type: "json" })) as { id: string }[]) ?? [];
+        await s.setJSON(key, idx.filter((x) => x.id !== rid));
+      };
+      let removed = 0;
+      if (what === "uploads" && id) { await s.delete(`snap/${id}`); await dropFromIndex("snap-index", id); removed = 1; }
+      else if (what === "runs" && id) { await s.delete(`run/${id}`); await dropFromIndex("run-index", id); removed = 1; }
+      else {
+        if (what === "uploads" || what === "all") { removed += await removeAll("snap/"); await s.delete("snap-index"); }
+        if (what === "runs" || what === "all") { removed += await removeAll("run/"); await s.delete("run-index"); }
+        if (what === "settings" || what === "all") { await s.delete("config"); removed += 1; }
+      }
+      return json({ ok: true, removed });
+    }
     if (parts[0] === "check" && req.method === "POST") {
       const { items } = (await req.json()) as { items: { article: string; itemId: string; fsns: string[] }[] };
       const out: Awaited<ReturnType<typeof checkOne>>[] = [];
