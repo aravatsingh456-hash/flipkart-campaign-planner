@@ -87,7 +87,7 @@ export default function App() {
   return (
     <div className="shell">
       <aside className="nav">
-        <div className="brand"><small>{(config.settings.brand || "Brand").toUpperCase()} × FLIPKART</small><h1>Flipkart Campaign Planner</h1></div>
+        <div className="brand"><small>DIGIDARTS × FLIPKART</small><h1>Flipkart Campaign Planner</h1></div>
         {nav.map(([k, l]) => (
           <button key={k} className={page === k ? "on" : ""} onClick={() => setPage(k)}>{l}</button>
         ))}
