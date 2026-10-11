@@ -4,7 +4,8 @@ import type { OutRow, ProcessResult } from "../lib/processing";
 import { api, type ArticleCheck, type CheckReq, type Run } from "../lib/api";
 import { download, prefixOf, sheetsToXlsx } from "../lib/exports";
 
-const BATCH = 8;
+const BATCH = 4;      // articles per server call (keeps each call well under the 10s function limit)
+const PARALLEL = 2;   // server calls in flight at once
 const pickPref = ["8", "9", "7", "10", "6", "11", "5", "4", "3", "12"];
 
 interface Art { campaign: string; article: string; model: string; color: string; itemId: string; rows: OutRow[] }
@@ -51,15 +52,24 @@ export default function LiveCheckPage({ s, result }: { s: AppState; result: Proc
     const prevId = s.runs[0]?.id;
     const results: ArticleCheck[] = [];
     try {
-      for (let i = 0; i < arts.length; i += BATCH) {
-        const batch = arts.slice(i, i + BATCH);
+      const batches: Art[][] = [];
+      for (let i = 0; i < arts.length; i += BATCH) batches.push(arts.slice(i, i + BATCH));
+      const checkBatch = async (batch: Art[]) => {
         const req: CheckReq[] = batch.map((a) => ({
           article: a.article, itemId: a.itemId,
           fsns: [...a.rows].filter((r) => r.item_id === a.itemId).sort((x, y) => y.qoh - x.qoh).map((r) => r.fsn).slice(0, 2),
         }));
-        let res;
-        try { res = await api.check(req); } catch (e) { res = req.map((r) => ({ article: r.article, ok: false, http: 0, error: String(e), sizes: [] })); }
-        batch.forEach((a, k) => {
+        try { return await api.check(req); }
+        catch (e) {
+          // one retry (e.g. function timeout), then mark as failed — never paused
+          try { return await api.check(req); } catch { return req.map((r) => ({ article: r.article, ok: false, http: 0, error: String(e), sizes: [] })); }
+        }
+      };
+      let finished = 0;
+      for (let b = 0; b < batches.length; b += PARALLEL) {
+        const group = batches.slice(b, b + PARALLEL);
+        const resGroup = await Promise.all(group.map(checkBatch));
+        group.forEach((batch, gi) => { const res = resGroup[gi]; batch.forEach((a, k) => {
           const r = res[k];
           if (!r.ok) { results.push({ campaign: a.campaign, article: a.article, model: a.model, color: a.color, status: "Check failed", liveSizes: [], http: r.http, error: r.error, oosFsns: [] }); return; }
           const live = [...new Set(r.sizes.filter((x) => x.inStock).map((x) => x.label))].sort((x, y) => parseFloat(x) - parseFloat(y));
@@ -68,8 +78,8 @@ export default function LiveCheckPage({ s, result }: { s: AppState; result: Proc
           const inStock = a.rows.filter((x) => liveSet.has(x.uk_size));
           const pick = pickPref.map((p) => inStock.find((x) => x.uk_size === p)).find(Boolean) ?? inStock[0];
           results.push({ campaign: a.campaign, article: a.article, model: a.model, color: a.color, status: live.length >= minLive ? "Active" : "Pause", liveSizes: live, http: r.http, inStockFsn: pick?.fsn, oosFsns });
-        });
-        setDone(Math.min(i + BATCH, arts.length));
+        }); finished += batch.length; });
+        setDone(finished);
       }
       const run: Run = {
         id: `${Date.now()}`, at: new Date().toISOString(), snapshotId: s.snapshot.id, scope,
