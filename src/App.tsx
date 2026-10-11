@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { DEFAULT_CONFIG, type Config } from "./lib/defaults";
 import { fromTuple, processInventory, type InvRow } from "./lib/processing";
 import { api, type Run, type RunMeta, type SnapshotMeta } from "./lib/api";
+import type { Register } from "./lib/register";
 import UploadPage from "./pages/Upload";
 import SettingsPage from "./pages/Settings";
 import CampaignsPage from "./pages/Campaigns";
@@ -21,6 +22,8 @@ export interface AppState {
   runs: RunMeta[];
   latestRun: Run | null;
   addRun: (run: Run) => void;
+  register: Register;
+  setRegister: (r: Register) => Promise<void>;
   go: (p: Page) => void;
 }
 
@@ -32,13 +35,15 @@ export default function App() {
   const [rows, setRows] = useState<InvRow[]>([]);
   const [runs, setRuns] = useState<RunMeta[]>([]);
   const [latestRun, setLatestRun] = useState<Run | null>(null);
+  const [register, setRegisterState] = useState<Register>({});
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
   useEffect(() => {
     (async () => {
       try {
-        const [cfg, snaps, rs] = await Promise.all([api.getConfig(), api.listSnapshots(), api.listRuns()]);
+        const [cfg, snaps, rs, reg] = await Promise.all([api.getConfig(), api.listSnapshots(), api.listRuns(), api.getRegister().catch(() => ({}))]);
+        setRegisterState(reg ?? {});
         if (cfg) setConfigState({ ...cfg, settings: { ...DEFAULT_CONFIG.settings, ...cfg.settings } });
         setSnapshots(snaps);
         setRuns(rs);
@@ -75,6 +80,8 @@ export default function App() {
       setRuns((p) => [meta, ...p]);
       setLatestRun(run);
     },
+    register,
+    setRegister: async (r) => { setRegisterState(r); await api.saveRegister(r); },
     go: setPage,
   };
 

@@ -3,6 +3,7 @@ import type { AppState } from "../App";
 import type { OutRow, ProcessResult } from "../lib/processing";
 import { api, type ArticleCheck, type CheckReq, type Run } from "../lib/api";
 import { download, prefixOf, sheetsToXlsx } from "../lib/exports";
+import { applyRun, canResume, fmtDate, paused, regKey, toPause, type RegEntry, type Register } from "../lib/register";
 
 const BATCH = 4;      // articles per server call (keeps each call well under the 10s function limit)
 const PARALLEL = 2;   // server calls in flight at once
@@ -12,24 +13,14 @@ interface Art { campaign: string; article: string; model: string; color: string;
 
 function mode(a: string[]) { const m = new Map<string, number>(); a.forEach((x) => m.set(x, (m.get(x) ?? 0) + 1)); return [...m].sort((x, y) => y[1] - x[1])[0]?.[0] ?? ""; }
 
-export function changesBetween(curr: Run, prev: Run | null) {
-  const p = new Map((prev?.results ?? []).map((r) => [`${r.campaign}|${r.article}`, r]));
-  const pause: ArticleCheck[] = []; const resume: ArticleCheck[] = [];
-  for (const r of curr.results) {
-    const o = p.get(`${r.campaign}|${r.article}`);
-    if (r.status === "Pause" && (!o || o.status === "Active")) pause.push(r);
-    if (r.status === "Active" && o?.status === "Pause") resume.push(r);
-  }
-  return { pause, resume };
-}
-
 export default function LiveCheckPage({ s, result }: { s: AppState; result: ProcessResult }) {
   const [scope, setScope] = useState("All campaigns");
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState(0);
   const [total, setTotal] = useState(0);
   const [err, setErr] = useState("");
-  const [view, setView] = useState<{ run: Run; prev: Run | null } | null>(null);
+  const [view, setView] = useState<Run | null>(null);
+  const [regTab, setRegTab] = useState<"pause" | "resume" | "paused">("pause");
   const minLive = s.config.settings.min_live_sizes;
 
   const arts = useMemo<Art[]>(() => {
@@ -90,23 +81,93 @@ export default function LiveCheckPage({ s, result }: { s: AppState; result: Proc
       if (scope !== "All campaigns" && prev) run.results.push(...prev.results.filter((r) => r.campaign !== scope));
       await api.saveRun(run);
       s.addRun(run);
-      setView({ run, prev });
+      await s.setRegister(applyRun(s.register, run, scope === "All campaigns" ? null : new Set([scope])));
+      setView(run);
+      setRegTab("pause");
     } catch (e) { setErr(String(e)); } finally { setRunning(false); }
   }
 
-  const v = view ?? (s.latestRun ? { run: s.latestRun, prev: null } : null);
-  const ch = view ? changesBetween(view.run, view.prev) : null;
-  const camps = v ? [...new Set(v.run.results.map((r) => r.campaign))] : [];
-  const failed = v?.run.results.filter((r) => r.status === "Check failed") ?? [];
+  const run = view ?? s.latestRun;
+  const camps = run ? [...new Set(run.results.map((r) => r.campaign))] : [];
+  const failed = run?.results.filter((r) => r.status === "Check failed") ?? [];
+  const reg = s.register;
+  const listToPause = toPause(reg).sort((a, b) => a.campaign.localeCompare(b.campaign) || a.article.localeCompare(b.article));
+  const listResume = canResume(reg).sort((a, b) => a.campaign.localeCompare(b.campaign) || a.article.localeCompare(b.article));
+  const listPaused = paused(reg).sort((a, b) => a.campaign.localeCompare(b.campaign) || a.article.localeCompare(b.article));
+  const px = prefixOf(s.config.settings.brand);
+  const today = new Date().toISOString().slice(0, 10);
 
-  function report() {
-    if (!v) return;
-    const row = (r: ArticleCheck) => ({ Campaign: r.campaign, Model: r.model, Article: r.article, Color: r.color, Status: r.status, "Live sizes": r.liveSizes.join(", "), "No. of sizes": r.liveSizes.length, "In-stock FSN": r.inStockFsn ?? "", "OOS FSNs": r.oosFsns.join(" "), HTTP: r.http ?? "", Error: r.error ?? "" });
-    download(`${prefixOf(s.config.settings.brand)}Live_Check_${v.run.at.slice(0, 16).replace(/[:T]/g, "-")}.xlsx`, sheetsToXlsx({
-      ...(ch ? { "PAUSE NOW": ch.pause.map(row), "CAN RESUME": ch.resume.map(row) } : {}),
-      "All articles": v.run.results.map(row),
+  // all FSNs of an article in its campaign (from the current inventory base)
+  const fsnsOf = useMemo(() => {
+    const m = new Map<string, OutRow[]>();
+    for (const c of result.campaigns) for (const r of c.rows) {
+      const k = regKey(c.campaign.name, r.article_number);
+      const a = m.get(k) ?? []; a.push(r); m.set(k, a);
+    }
+    return m;
+  }, [result]);
+
+  const fsnRows = (list: RegEntry[], dateCol: string, dateOf: (e: RegEntry) => string | undefined) =>
+    list.flatMap((e) => (fsnsOf.get(regKey(e.campaign, e.article)) ?? [{ fsn: "(not in current upload)", uk_size: "" } as OutRow]).map((r) => ({
+      [dateCol]: fmtDate(dateOf(e)), Campaign: e.campaign, Model: e.model, Article: e.article, Color: e.color,
+      FSN: r.fsn, "UK size": r.uk_size, "Live sizes on Flipkart": e.liveSizes.join(", ") || "None", "No. of live sizes": e.liveSizes.length,
+      "Last checked": fmtDate(e.lastCheckedAt),
+    })));
+  const regRow = (e: RegEntry) => ({
+    Campaign: e.campaign, Model: e.model, Article: e.article, Color: e.color, State: e.state,
+    "Pause flagged on": fmtDate(e.flaggedOn), "Paused in Flipkart on": fmtDate(e.pausedOn), "Resumed on": fmtDate(e.resumedOn),
+    "Live sizes (last check)": e.liveSizes.join(", ") || "None", "Last checked": fmtDate(e.lastCheckedAt),
+  });
+
+  function downloadPause() {
+    download(`${px}FSNs_to_Pause_${today}.xlsx`, sheetsToXlsx({
+      "FSNs to pause": fsnRows(listToPause, "Pause flagged on", (e) => e.flaggedOn),
+      "Articles to pause": listToPause.map(regRow),
+      "Already paused": listPaused.map(regRow),
     }), "application/octet-stream");
   }
+  function downloadResume() {
+    download(`${px}FSNs_to_Resume_${today}.xlsx`, sheetsToXlsx({
+      "FSNs to resume": fsnRows(listResume, "Paused in Flipkart on", (e) => e.pausedOn),
+      "Articles to resume": listResume.map(regRow),
+    }), "application/octet-stream");
+  }
+  async function mark(list: RegEntry[], state: "Paused" | "Resumed") {
+    const label = state === "Paused" ? "paused in Flipkart Ads" : "switched back ON in Flipkart Ads";
+    if (!window.confirm(`Confirm ${list.length} article(s) are now ${label}? Today's date will be saved.`)) return;
+    const now = new Date().toISOString();
+    const next: Register = { ...reg };
+    for (const e of list) {
+      const k = regKey(e.campaign, e.article);
+      next[k] = state === "Paused" ? { ...next[k], state, pausedOn: now } : { ...next[k], state, resumedOn: now };
+    }
+    await s.setRegister(next);
+  }
+  function report() {
+    if (!run) return;
+    const row = (r: ArticleCheck) => ({ Campaign: r.campaign, Model: r.model, Article: r.article, Color: r.color, Status: r.status, "Live sizes": r.liveSizes.join(", "), "No. of sizes": r.liveSizes.length, "In-stock FSN": r.inStockFsn ?? "", "OOS FSNs": r.oosFsns.join(" "), HTTP: r.http ?? "", Error: r.error ?? "" });
+    download(`${px}Live_Check_${run.at.slice(0, 16).replace(/[:T]/g, "-")}.xlsx`, sheetsToXlsx({
+      "All articles": run.results.map(row), "Pause register": Object.values(reg).map(regRow),
+    }), "application/octet-stream");
+  }
+
+  const regTable = (list: RegEntry[], kind: "pause" | "resume" | "paused") => (
+    <div className="tablewrap" style={{ maxHeight: 420 }}>
+      <table><thead><tr><th>Campaign</th><th>Model</th><th>Article</th><th>Color</th><th>Live sizes</th>
+        <th>{kind === "pause" ? "Pause flagged on" : "Paused on"}</th>{kind !== "pause" && <th>Flagged on</th>}<th className="num">FSNs</th><th></th></tr></thead>
+        <tbody>{list.map((e) => (
+          <tr key={e.campaign + e.article}><td>{e.campaign}</td><td>{e.model}</td><td>{e.article}</td><td>{e.color}</td>
+            <td>{e.liveSizes.join(", ") || "None"}</td>
+            <td>{fmtDate(kind === "pause" ? e.flaggedOn : e.pausedOn)}</td>{kind !== "pause" && <td>{fmtDate(e.flaggedOn)}</td>}
+            <td className="num">{fsnsOf.get(regKey(e.campaign, e.article))?.length ?? 0}</td>
+            <td style={{ textAlign: "right" }}>
+              {kind === "pause" && <button className="btn small ghost" onClick={() => mark([e], "Paused")}>Mark paused</button>}
+              {kind === "resume" && <button className="btn small ghost" onClick={() => mark([e], "Resumed")}>Mark resumed</button>}
+            </td></tr>
+        ))}</tbody></table>
+      {!list.length && <p className="muted" style={{ padding: 10 }}>Nothing here.</p>}
+    </div>
+  );
 
   return (
     <>
@@ -123,16 +184,45 @@ export default function LiveCheckPage({ s, result }: { s: AppState; result: Proc
         {err && <div className="alert bad" style={{ marginTop: 12 }}>{err}</div>}
       </div>
 
-      {v && (
+      <div className="card">
+        <div className="row" style={{ justifyContent: "space-between" }}>
+          <h3 style={{ margin: 0 }}>Pause register</h3>
+          <span className="muted" style={{ fontSize: 13 }}>Remembers when each article was flagged, paused and resumed.</span>
+        </div>
+        <div className="tabs" style={{ marginTop: 12 }}>
+          <button className={regTab === "pause" ? "on" : ""} onClick={() => setRegTab("pause")}>To pause · {listToPause.length}</button>
+          <button className={regTab === "resume" ? "on" : ""} onClick={() => setRegTab("resume")}>Can resume · {listResume.length}</button>
+          <button className={regTab === "paused" ? "on" : ""} onClick={() => setRegTab("paused")}>Currently paused · {listPaused.length}</button>
+        </div>
+        {regTab === "pause" && (<>
+          <p className="muted">These articles have fewer than {minLive} sizes in stock on Flipkart. Download the FSN list, pause all of them in Flipkart Ads, then click <b>Mark all as paused</b> so the app records today's date.</p>
+          <div className="row" style={{ marginBottom: 10 }}>
+            <button className="btn" disabled={!listToPause.length} onClick={downloadPause}>Download FSNs to pause (Excel)</button>
+            <button className="btn ghost" disabled={!listToPause.length} onClick={() => mark(listToPause, "Paused")}>Mark all as paused</button>
+          </div>
+          {regTable(listToPause, "pause")}
+        </>)}
+        {regTab === "resume" && (<>
+          <p className="muted">These articles were paused but now have {minLive}+ sizes in stock again. Switch them back on in Flipkart Ads, then click <b>Mark all as resumed</b>.</p>
+          <div className="row" style={{ marginBottom: 10 }}>
+            <button className="btn" disabled={!listResume.length} onClick={downloadResume}>Download FSNs to resume (Excel)</button>
+            <button className="btn ghost" disabled={!listResume.length} onClick={() => mark(listResume, "Resumed")}>Mark all as resumed</button>
+          </div>
+          {regTable(listResume, "resume")}
+        </>)}
+        {regTab === "paused" && regTable(listPaused, "paused")}
+      </div>
+
+      {run && (
         <>
           <div className="row" style={{ justifyContent: "space-between", marginBottom: 10 }}>
-            <span className="muted">Showing check from {new Date(v.run.at).toLocaleString("en-IN")} · {v.run.scope}</span>
-            <button className="btn ghost" onClick={report}>Download status report (Excel)</button>
+            <span className="muted">Last check: {new Date(run.at).toLocaleString("en-IN")} · {run.scope}</span>
+            <button className="btn ghost" onClick={report}>Download full status report (Excel)</button>
           </div>
-          {failed.length > 0 && <div className="alert warn">{failed.length} article(s) could not be checked (e.g. HTTP {[...new Set(failed.map((f) => f.http || "error"))].join(", ")}). They were NOT paused.</div>}
+          {failed.length > 0 && <div className="alert warn">{failed.length} article(s) could not be checked (e.g. HTTP {[...new Set(failed.map((f) => f.http || "error"))].join(", ")}). They were NOT flagged for pause.</div>}
           <div className="grid" style={{ marginBottom: 16 }}>
             {camps.map((c) => {
-              const rs = v.run.results.filter((r) => r.campaign === c);
+              const rs = run.results.filter((r) => r.campaign === c);
               return (
                 <div className="stat" key={c}><div style={{ fontWeight: 600 }}>{c}</div>
                   <div className="row" style={{ marginTop: 6, gap: 6 }}>
@@ -145,29 +235,16 @@ export default function LiveCheckPage({ s, result }: { s: AppState; result: Proc
               );
             })}
           </div>
-          {ch && (
-            <div className="card">
-              <h3>Changes since last check</h3>
-              {!ch.pause.length && !ch.resume.length && <p className="muted">No changes.</p>}
-              {[["PAUSE NOW", ch.pause, "bad"], ["CAN RESUME", ch.resume, "ok"]].map(([label, list, cls]) => (list as ArticleCheck[]).length > 0 && (
-                <div key={label as string} style={{ marginBottom: 14 }}>
-                  <p><span className={`pill ${cls}`}>{label as string}</span> {(list as ArticleCheck[]).length}</p>
-                  <table><thead><tr><th>Campaign</th><th>Model</th><th>Article</th><th>Color</th><th>Live sizes</th><th>In-stock FSN</th></tr></thead>
-                    <tbody>{(list as ArticleCheck[]).map((r) => <tr key={r.campaign + r.article}><td>{r.campaign}</td><td>{r.model}</td><td>{r.article}</td><td>{r.color}</td><td>{r.liveSizes.join(", ") || "None"}</td><td>{r.inStockFsn ?? "—"}</td></tr>)}</tbody></table>
-                </div>
-              ))}
-              {!view?.prev && <p className="muted">This is the first check — every article below the threshold is listed under PAUSE NOW.</p>}
-            </div>
-          )}
           <div className="card">
-            <h3>All articles</h3>
+            <h3>All articles (last check)</h3>
             <div className="tablewrap" style={{ maxHeight: 500 }}>
-              <table><thead><tr><th>Campaign</th><th>Model</th><th>Article</th><th>Color</th><th>Status</th><th>Live sizes</th><th className="num">OOS FSNs</th></tr></thead>
-                <tbody>{v.run.results.map((r) => (
+              <table><thead><tr><th>Campaign</th><th>Model</th><th>Article</th><th>Color</th><th>Status</th><th>Live sizes</th><th className="num">OOS FSNs</th><th>Register</th></tr></thead>
+                <tbody>{run.results.map((r) => { const e = reg[regKey(r.campaign, r.article)]; return (
                   <tr key={r.campaign + r.article}><td>{r.campaign}</td><td>{r.model}</td><td>{r.article}</td><td>{r.color}</td>
                     <td>{r.status === "Active" ? <span className="pill ok">Active</span> : r.status === "Pause" ? <span className="pill bad">Pause</span> : <span className="pill warn" title={r.error}>Check failed {r.http ? `(${r.http})` : ""}</span>}</td>
-                    <td>{r.liveSizes.join(", ") || (r.status === "Check failed" ? "—" : "None")}</td><td className="num">{r.oosFsns.length}</td></tr>
-                ))}</tbody></table>
+                    <td>{r.liveSizes.join(", ") || (r.status === "Check failed" ? "—" : "None")}</td><td className="num">{r.oosFsns.length}</td>
+                    <td>{e && e.state !== "Resumed" ? `${e.state} · ${fmtDate(e.state === "Paused" ? e.pausedOn : e.flaggedOn)}` : ""}</td></tr>
+                ); })}</tbody></table>
             </div>
           </div>
         </>

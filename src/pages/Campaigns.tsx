@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { AppState } from "../App";
 import type { ProcessResult } from "../lib/processing";
+import { fmtDate, regKey } from "../lib/register";
 
 export default function CampaignsPage({ s, result }: { s: AppState; result: ProcessResult }) {
   const [tab, setTab] = useState(0);
@@ -59,7 +60,9 @@ export default function CampaignsPage({ s, result }: { s: AppState; result: Proc
                 <td>{r.model_name}</td><td>{r.article_number}</td><td>{r.fsn}</td><td>{r.color}</td>
                 <td className="num">₹{r.mrp.toLocaleString("en-IN")}</td><td className="num">{r.qoh}</td><td>{r.uk_size}</td><td>{r.vertical}</td><td>{r.core}</td>
                 <td>{!ch ? <span className="pill grey">Not checked</span> : ch.status === "Active" ? <span className="pill ok">Active</span> : ch.status === "Pause" ? <span className="pill bad">Paused</span> : <span className="pill warn">Check failed</span>}
-                  {oos && <span className="pill bad" style={{ marginLeft: 4 }}>OOS</span>}</td>
+                  {oos && <span className="pill bad" style={{ marginLeft: 4 }}>OOS</span>}
+                  {(() => { const e = s.register[regKey(r.campaign, r.article_number)]; return e && e.state !== "Resumed"
+                    ? <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{e.state === "Paused" ? `Paused ${fmtDate(e.pausedOn)}` : `To pause since ${fmtDate(e.flaggedOn)}`}</div> : null; })()}</td>
                 <td>{ch?.status === "Check failed" ? "—" : ch?.liveSizes.join(", ")}</td>
               </tr>
             );

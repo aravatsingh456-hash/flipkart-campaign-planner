@@ -67,6 +67,10 @@ export default async (req: Request, _ctx: Context) => {
         return json({ ok: true });
       }
     }
+    if (parts[0] === "register") {
+      if (req.method === "GET") return json((await s.get("register", { type: "json" })) ?? {});
+      if (req.method === "PUT") { await s.setJSON("register", await req.json()); return json({ ok: true }); }
+    }
     if (parts[0] === "data" && req.method === "DELETE") {
       // what = uploads | runs | settings | all ; optional id deletes a single upload/run
       const what = url.searchParams.get("what") ?? "";
@@ -85,7 +89,7 @@ export default async (req: Request, _ctx: Context) => {
       else if (what === "runs" && id) { await s.delete(`run/${id}`); await dropFromIndex("run-index", id); removed = 1; }
       else {
         if (what === "uploads" || what === "all") { removed += await removeAll("snap/"); await s.delete("snap-index"); }
-        if (what === "runs" || what === "all") { removed += await removeAll("run/"); await s.delete("run-index"); }
+        if (what === "runs" || what === "all") { removed += await removeAll("run/"); await s.delete("run-index"); await s.delete("register"); }
         if (what === "settings" || what === "all") { await s.delete("config"); removed += 1; }
       }
       return json({ ok: true, removed });

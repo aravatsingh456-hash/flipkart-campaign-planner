@@ -1,5 +1,6 @@
 import type { Config } from "./defaults";
 import type { InvTuple } from "./processing";
+import type { Register } from "./register";
 
 export interface SnapshotMeta { id: string; fileName: string; uploadedAt: string; rowCount: number }
 export interface ArticleCheck {
@@ -27,6 +28,8 @@ export const api = {
   listRuns: () => j<RunMeta[]>("runs"),
   getRun: (id: string) => j<Run>(`runs/${id}`),
   saveRun: (run: Run) => j<{ ok: true }>("runs", { method: "POST", body: JSON.stringify(run) }),
+  getRegister: () => j<Register>("register"),
+  saveRegister: (r: Register) => j<{ ok: true }>("register", { method: "PUT", body: JSON.stringify(r) }),
   clear: (what: "uploads" | "runs" | "settings" | "all", id?: string) =>
     j<{ ok: true; removed: number }>(`data?what=${what}${id ? `&id=${encodeURIComponent(id)}` : ""}`, { method: "DELETE" }),
   check: (items: CheckReq[]) => j<CheckRes[]>("check", { method: "POST", body: JSON.stringify({ items }) }),
