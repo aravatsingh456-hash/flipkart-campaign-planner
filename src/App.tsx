@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { DEFAULT_CONFIG, type Config } from "./lib/defaults";
 import { fromTuple, processInventory, type InvRow } from "./lib/processing";
 import { api, type Run, type RunMeta, type SnapshotMeta } from "./lib/api";
@@ -27,7 +27,7 @@ export interface AppState {
   go: (p: Page) => void;
 }
 
-export default function App() {
+export default function App({ switcher }: { switcher?: ReactNode }) {
   const [page, setPage] = useState<Page>("campaigns");
   const [config, setConfigState] = useState<Config>(DEFAULT_CONFIG);
   const [snapshots, setSnapshots] = useState<SnapshotMeta[]>([]);
@@ -40,6 +40,7 @@ export default function App() {
   const [err, setErr] = useState("");
 
   useEffect(() => {
+    document.title = "Flipkart Campaign Planner";
     (async () => {
       try {
         const [cfg, snaps, rs, reg] = await Promise.all([api.getConfig(), api.listSnapshots(), api.listRuns(), api.getRegister().catch(() => ({}))]);
@@ -95,6 +96,7 @@ export default function App() {
     <div className="shell">
       <aside className="nav">
         <div className="brand"><small>DIGIDARTS × FLIPKART</small><h1>Flipkart Campaign Planner</h1></div>
+        {switcher}
         {nav.map(([k, l]) => (
           <button key={k} className={page === k ? "on" : ""} onClick={() => setPage(k)}>{l}</button>
         ))}

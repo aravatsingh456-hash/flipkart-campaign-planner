@@ -1,6 +1,7 @@
 import { getStore } from "@netlify/blobs";
 import type { Config, Context } from "@netlify/functions";
 import { parseSizes, looksBlocked } from "../../src/lib/flipkart";
+import { fetchAsics } from "../../src/d2c/asics";
 
 export const config: Config = { path: "/api/*" };
 
@@ -31,45 +32,49 @@ async function checkOne(it: { article: string; itemId: string; fsns: string[] })
 
 export default async (req: Request, _ctx: Context) => {
   const url = new URL(req.url);
-  const parts = url.pathname.replace(/^\/api\/?/, "").split("/").filter(Boolean);
+  let parts = url.pathname.replace(/^\/api\/?/, "").split("/").filter(Boolean);
+  // "/api/d2c/..." uses the same routes with every key under "d2c/" so Flipkart and D2C data never mix
+  const P = parts[0] === "d2c" ? "d2c/" : "";
+  if (P) parts = parts.slice(1);
   const s = store();
   try {
     if (parts[0] === "config") {
-      if (req.method === "GET") return json((await s.get("config", { type: "json" })) ?? null);
-      if (req.method === "PUT") { await s.setJSON("config", await req.json()); return json({ ok: true }); }
+      if (req.method === "GET") return json((await s.get(`${P}config`, { type: "json" })) ?? null);
+      if (req.method === "PUT") { await s.setJSON(`${P}config`, await req.json()); return json({ ok: true }); }
     }
     if (parts[0] === "snapshots") {
       if (req.method === "GET" && parts[1]) {
-        const d = await s.get(`snap/${parts[1]}`, { type: "json" });
+        const d = await s.get(`${P}snap/${parts[1]}`, { type: "json" });
         return d ? json(d) : json({ error: "not found" }, 404);
       }
-      if (req.method === "GET") return json(((await s.get("snap-index", { type: "json" })) as unknown[]) ?? []);
+      if (req.method === "GET") return json(((await s.get(`${P}snap-index`, { type: "json" })) as unknown[]) ?? []);
       if (req.method === "POST") {
         const body = (await req.json()) as { meta: { id: string } };
-        await s.setJSON(`snap/${body.meta.id}`, body);
-        const idx = ((await s.get("snap-index", { type: "json" })) as unknown[]) ?? [];
-        await s.setJSON("snap-index", [body.meta, ...idx].slice(0, 100));
+        await s.setJSON(`${P}snap/${body.meta.id}`, body);
+        const idx = ((await s.get(`${P}snap-index`, { type: "json" })) as unknown[]) ?? [];
+        await s.setJSON(`${P}snap-index`, [body.meta, ...idx].slice(0, 100));
         return json({ ok: true });
       }
     }
     if (parts[0] === "runs") {
       if (req.method === "GET" && parts[1]) {
-        const d = await s.get(`run/${parts[1]}`, { type: "json" });
+        const d = await s.get(`${P}run/${parts[1]}`, { type: "json" });
         return d ? json(d) : json({ error: "not found" }, 404);
       }
-      if (req.method === "GET") return json(((await s.get("run-index", { type: "json" })) as unknown[]) ?? []);
+      if (req.method === "GET") return json(((await s.get(`${P}run-index`, { type: "json" })) as unknown[]) ?? []);
       if (req.method === "POST") {
-        const run = (await req.json()) as { id: string; at: string; snapshotId: string; scope: string; articles: number; failed: number };
-        await s.setJSON(`run/${run.id}`, run);
-        const { id, at, snapshotId, scope, articles, failed } = run;
-        const idx = ((await s.get("run-index", { type: "json" })) as unknown[]) ?? [];
-        await s.setJSON("run-index", [{ id, at, snapshotId, scope, articles, failed }, ...idx].slice(0, 300));
+        const run = (await req.json()) as Record<string, unknown> & { id: string };
+        await s.setJSON(`${P}run/${run.id}`, run);
+        // index keeps only the small fields (no results / web data)
+        const meta = Object.fromEntries(Object.entries(run).filter(([, v]) => v === null || typeof v !== "object"));
+        const idx = ((await s.get(`${P}run-index`, { type: "json" })) as unknown[]) ?? [];
+        await s.setJSON(`${P}run-index`, [meta, ...idx].slice(0, 300));
         return json({ ok: true });
       }
     }
     if (parts[0] === "register") {
-      if (req.method === "GET") return json((await s.get("register", { type: "json" })) ?? {});
-      if (req.method === "PUT") { await s.setJSON("register", await req.json()); return json({ ok: true }); }
+      if (req.method === "GET") return json((await s.get(`${P}register`, { type: "json" })) ?? {});
+      if (req.method === "PUT") { await s.setJSON(`${P}register`, await req.json()); return json({ ok: true }); }
     }
     if (parts[0] === "data" && req.method === "DELETE") {
       // what = uploads | runs | settings | all ; optional id deletes a single upload/run
@@ -85,14 +90,18 @@ export default async (req: Request, _ctx: Context) => {
         await s.setJSON(key, idx.filter((x) => x.id !== rid));
       };
       let removed = 0;
-      if (what === "uploads" && id) { await s.delete(`snap/${id}`); await dropFromIndex("snap-index", id); removed = 1; }
-      else if (what === "runs" && id) { await s.delete(`run/${id}`); await dropFromIndex("run-index", id); removed = 1; }
+      if (what === "uploads" && id) { await s.delete(`${P}snap/${id}`); await dropFromIndex(`${P}snap-index`, id); removed = 1; }
+      else if (what === "runs" && id) { await s.delete(`${P}run/${id}`); await dropFromIndex(`${P}run-index`, id); removed = 1; }
       else {
-        if (what === "uploads" || what === "all") { removed += await removeAll("snap/"); await s.delete("snap-index"); }
-        if (what === "runs" || what === "all") { removed += await removeAll("run/"); await s.delete("run-index"); await s.delete("register"); }
-        if (what === "settings" || what === "all") { await s.delete("config"); removed += 1; }
+        if (what === "uploads" || what === "all") { removed += await removeAll(`${P}snap/`); await s.delete(`${P}snap-index`); }
+        if (what === "runs" || what === "all") { removed += await removeAll(`${P}run/`); await s.delete(`${P}run-index`); await s.delete(`${P}register`); }
+        if (what === "settings" || what === "all") { await s.delete(`${P}config`); removed += 1; }
       }
       return json({ ok: true, removed });
+    }
+    if (P && parts[0] === "check" && req.method === "POST") {
+      const { options } = (await req.json()) as { options: string[] };
+      return json(await fetchAsics(options.slice(0, 50)));
     }
     if (parts[0] === "check" && req.method === "POST") {
       const { items } = (await req.json()) as { items: { article: string; itemId: string; fsns: string[] }[] };

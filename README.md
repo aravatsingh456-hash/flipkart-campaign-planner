@@ -29,3 +29,13 @@ npm install
 npm run dev        # frontend only
 npx netlify dev    # frontend + functions + blobs
 ```
+
+## D2C mode (brand website → Meta / Google product lists)
+
+Use the **Flipkart | D2C** switch at the top of the sidebar. D2C has its own uploads, settings, website checks and pause register (stored under `d2c/` in the same Blobs store), so nothing mixes with Flipkart.
+
+1. **Upload stock file** – the website discount / stock Excel (columns: sku, Product Name, Option, Category, Gender, MRP, SOH, discount %). Only footwear categories in Settings with SOH > 0 are saved.
+2. **Settings** – minimum SOH per size (20), Men core sizes (7, 8, 9, 10 – all needed), Women minimum sizes (any 4), Unisex in both, categories with the High AOV cut-off on sale price (PRUN ₹6,000 · SPS ₹5,000 · CPS ₹6,000).
+3. **Website check** – looks up every qualifying article on asics.co.in (in-stock sizes, price, shoe type, URL). Runs from the browser; the Netlify function (`/api/d2c/check`) is a fallback.
+4. **Files** – four Excel files: Discounted / Non-discounted detailed sheets and Discounted / Non-discounted ID files (per campaign tab: Meta table with Option, Google table with sku, both with product URL).
+5. **Pause register** – an article listed in the previous check that drops out goes to "To pause" (Option + skus to remove); when it qualifies again it shows under "Can resume".

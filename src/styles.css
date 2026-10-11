@@ -53,3 +53,10 @@ tr.alt td { background: #f8f9fb; }
 .camp { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 10px; background: #fcfcfd; }
 .drop { border: 2px dashed #c4ccd8; border-radius: 12px; padding: 30px; text-align: center; background: #fff; }
 @media (max-width: 800px) { .shell { grid-template-columns: 1fr; } .nav { position: static; height: auto; } .main { padding: 16px; } }
+.switch { display: flex; background: #1c2b4d; border-radius: 9px; padding: 3px; margin: -8px 0 18px; }
+.nav .switch button { flex: 1; text-align: center; margin: 0; padding: 7px 0; border-radius: 7px; font-weight: 600; font-size: 13px; }
+.nav .switch button.on { background: var(--gold); color: var(--nav); }
+.nav .switch button:not(.on):hover { background: #26375e; }
+label { font-size: 13px; color: var(--muted); }
+label input { margin-top: 4px; }
+a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
