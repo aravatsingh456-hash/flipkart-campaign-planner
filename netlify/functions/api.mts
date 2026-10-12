@@ -72,6 +72,20 @@ export default async (req: Request, _ctx: Context) => {
         return json({ ok: true });
       }
     }
+    if (parts[0] === "reports") {
+      if (req.method === "GET" && parts[1]) {
+        const d = await s.get(`${P}report/${parts[1]}`, { type: "json" });
+        return d ? json(d) : json({ error: "not found" }, 404);
+      }
+      if (req.method === "GET") return json(((await s.get(`${P}report-index`, { type: "json" })) as unknown[]) ?? []);
+      if (req.method === "PUT" && parts[1]) {
+        const body = (await req.json()) as { report: { id: string }; meta: { id: string } };
+        await s.setJSON(`${P}report/${parts[1]}`, body.report);
+        const idx = (((await s.get(`${P}report-index`, { type: "json" })) as { id: string }[]) ?? []).filter((x) => x.id !== parts[1]);
+        await s.setJSON(`${P}report-index`, [body.meta, ...idx]);
+        return json({ ok: true });
+      }
+    }
     if (parts[0] === "register") {
       if (req.method === "GET") return json((await s.get(`${P}register`, { type: "json" })) ?? {});
       if (req.method === "PUT") { await s.setJSON(`${P}register`, await req.json()); return json({ ok: true }); }
@@ -91,10 +105,12 @@ export default async (req: Request, _ctx: Context) => {
       };
       let removed = 0;
       if (what === "uploads" && id) { await s.delete(`${P}snap/${id}`); await dropFromIndex(`${P}snap-index`, id); removed = 1; }
+      else if (what === "reports" && id) { await s.delete(`${P}report/${id}`); await dropFromIndex(`${P}report-index`, id); removed = 1; }
       else if (what === "runs" && id) { await s.delete(`${P}run/${id}`); await dropFromIndex(`${P}run-index`, id); removed = 1; }
       else {
         if (what === "uploads" || what === "all") { removed += await removeAll(`${P}snap/`); await s.delete(`${P}snap-index`); }
         if (what === "runs" || what === "all") { removed += await removeAll(`${P}run/`); await s.delete(`${P}run-index`); await s.delete(`${P}register`); }
+        if (what === "reports" || what === "all") { removed += await removeAll(`${P}report/`); await s.delete(`${P}report-index`); }
         if (what === "settings" || what === "all") { await s.delete(`${P}config`); removed += 1; }
       }
       return json({ ok: true, removed });

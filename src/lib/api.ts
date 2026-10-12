@@ -1,6 +1,7 @@
 import type { Config } from "./defaults";
 import type { InvTuple } from "./processing";
 import type { Register } from "./register";
+import type { CampaignReport, ReportMeta } from "./reports";
 
 export interface SnapshotMeta { id: string; fileName: string; uploadedAt: string; rowCount: number }
 export interface ArticleCheck {
@@ -30,7 +31,10 @@ export const api = {
   saveRun: (run: Run) => j<{ ok: true }>("runs", { method: "POST", body: JSON.stringify(run) }),
   getRegister: () => j<Register>("register"),
   saveRegister: (r: Register) => j<{ ok: true }>("register", { method: "PUT", body: JSON.stringify(r) }),
-  clear: (what: "uploads" | "runs" | "settings" | "all", id?: string) =>
+  listReports: () => j<ReportMeta[]>("reports"),
+  getReport: (id: string) => j<CampaignReport>(`reports/${id}`),
+  saveReport: (report: CampaignReport, meta: ReportMeta) => j<{ ok: true }>(`reports/${report.id}`, { method: "PUT", body: JSON.stringify({ report, meta }) }),
+  clear: (what: "uploads" | "runs" | "settings" | "reports" | "all", id?: string) =>
     j<{ ok: true; removed: number }>(`data?what=${what}${id ? `&id=${encodeURIComponent(id)}` : ""}`, { method: "DELETE" }),
   check: (items: CheckReq[]) => j<CheckRes[]>("check", { method: "POST", body: JSON.stringify({ items }) }),
 };

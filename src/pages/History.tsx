@@ -18,9 +18,9 @@ export default function HistoryPage({ s }: { s: AppState }) {
     } finally { setBusy(""); }
   }
 
-  async function clear(what: "uploads" | "runs" | "settings" | "all", id?: string, label?: string) {
+  async function clear(what: "uploads" | "runs" | "settings" | "reports" | "all", id?: string, label?: string) {
     const msg = id ? `Delete this ${label}? This cannot be undone.`
-      : { uploads: "Delete ALL uploads?", runs: "Delete ALL live check history and the pause register (all pause/resume dates)?", settings: "Reset settings and campaigns to defaults?", all: "Delete EVERYTHING (uploads, live checks and settings)?" }[what] + " This cannot be undone.";
+      : { uploads: "Delete ALL uploads?", runs: "Delete ALL live check history and the pause register (all pause/resume dates)?", settings: "Reset settings and campaigns to defaults?", reports: "Delete ALL uploaded campaign reports?", all: "Delete EVERYTHING (uploads, live checks, campaign reports and settings)?" }[what] + " This cannot be undone.";
     if (!window.confirm(msg)) return;
     setBusy(`clear-${what}-${id ?? ""}`);
     try { await api.clear(what, id); window.location.reload(); }
@@ -58,6 +58,7 @@ export default function HistoryPage({ s }: { s: AppState }) {
         <div className="row">
           <button className="btn small danger" disabled={!!busy} onClick={() => clear("runs")}>Clear live check history & pause register</button>
           <button className="btn small danger" disabled={!!busy} onClick={() => clear("uploads")}>Clear all uploads</button>
+          <button className="btn small danger" disabled={!!busy} onClick={() => clear("reports")}>Clear campaign reports</button>
           <button className="btn small danger" disabled={!!busy} onClick={() => clear("settings")}>Reset settings to defaults</button>
           <button className="btn danger" disabled={!!busy} onClick={() => clear("all")}>Clear everything</button>
         </div>

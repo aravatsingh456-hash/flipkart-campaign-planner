@@ -1,6 +1,6 @@
 export type Gender = "Men" | "Women";
 export interface CampaignRule { vertical: string; mrp_from: number; mrp_to: number }
-export interface Campaign { name: string; gender: Gender; active: boolean; rules: CampaignRule[] }
+export interface Campaign { name: string; gender: Gender; active: boolean; rules: CampaignRule[]; fromReport?: string /* Flipkart campaign id it was created from */ }
 export interface Settings {
   brand: string;
   min_qoh: number;

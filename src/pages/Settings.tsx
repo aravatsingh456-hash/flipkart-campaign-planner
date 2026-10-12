@@ -56,6 +56,7 @@ export default function SettingsPage({ s }: { s: AppState }) {
               <input style={{ minWidth: 260, fontWeight: 600 }} value={c.name} onChange={(e) => set((d) => { d.campaigns[i].name = e.target.value; })} />
               <select value={c.gender} onChange={(e) => set((d) => { d.campaigns[i].gender = e.target.value as Campaign["gender"]; })}><option>Men</option><option>Women</option></select>
               <label className="row" style={{ gap: 4 }}><input type="checkbox" checked={c.active} onChange={(e) => set((d) => { d.campaigns[i].active = e.target.checked; })} /> Active</label>
+              {c.fromReport && <span className="pill grey" title="Created from a Flipkart campaign report. When Active is off it is only used on the Campaign reports page.">From report {c.fromReport}</span>}
               <span style={{ flex: 1 }} />
               <button className="btn small ghost" disabled={i === 0} onClick={() => set((d) => { [d.campaigns[i - 1], d.campaigns[i]] = [d.campaigns[i], d.campaigns[i - 1]]; })}>↑</button>
               <button className="btn small ghost" disabled={i === draft.campaigns.length - 1} onClick={() => set((d) => { [d.campaigns[i + 1], d.campaigns[i]] = [d.campaigns[i], d.campaigns[i + 1]]; })}>↓</button>

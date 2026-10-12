@@ -8,8 +8,9 @@ import SettingsPage from "./pages/Settings";
 import CampaignsPage from "./pages/Campaigns";
 import LiveCheckPage from "./pages/LiveCheck";
 import HistoryPage from "./pages/History";
+import ReportsPage from "./pages/Reports";
 
-export type Page = "campaigns" | "upload" | "settings" | "live" | "history";
+export type Page = "campaigns" | "upload" | "settings" | "live" | "reports" | "history";
 
 export interface AppState {
   config: Config;
@@ -89,7 +90,7 @@ export default function App({ switcher }: { switcher?: ReactNode }) {
   const result = useMemo(() => processInventory(rows, config.campaigns, config.settings), [rows, config]);
 
   const nav: [Page, string][] = [
-    ["campaigns", "Campaigns"], ["upload", "Upload inventory"], ["settings", "Settings"], ["live", "Live check"], ["history", "History"],
+    ["campaigns", "Campaigns"], ["upload", "Upload inventory"], ["settings", "Settings"], ["live", "Live check"], ["reports", "Campaign reports"], ["history", "History"],
   ];
 
   return (
@@ -112,6 +113,7 @@ export default function App({ switcher }: { switcher?: ReactNode }) {
             {page === "upload" && <UploadPage s={state} />}
             {page === "settings" && <SettingsPage s={state} />}
             {page === "live" && <LiveCheckPage s={state} result={result} />}
+            {page === "reports" && <ReportsPage s={state} />}
             {page === "history" && <HistoryPage s={state} />}
           </>
         )}

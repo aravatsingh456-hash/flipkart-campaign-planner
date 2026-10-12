@@ -39,3 +39,7 @@ Use the **Flipkart | D2C** switch at the top of the sidebar. D2C has its own upl
 3. **Website check** – looks up every qualifying article on asics.co.in (in-stock sizes, price, shoe type, URL). Runs from the browser; the Netlify function (`/api/d2c/check`) is a fallback.
 4. **Files** – four Excel files: Discounted / Non-discounted detailed sheets and Discounted / Non-discounted ID files (per campaign tab: Meta table with Option, Google table with sku, both with product URL).
 5. **Pause register** – an article listed in the previous check that drops out goes to "To pause" (Option + skus to remove); when it qualifies again it shows under "Can resume".
+
+## Campaign reports (Flipkart)
+
+**Campaign reports** page: upload one or more Flipkart Ads "All FSNs of campaign" CSV exports. Each report is linked to a planner campaign (picked from the list, or created from the report — rules are suggested per vertical with the MRP range of its FSNs; created campaigns are "tracking only" until switched on in Settings). The report is compared with the current QOH upload and the latest live check (or its own "Check these articles on Flipkart" run) and split into: new articles to add (restocked), sizes to add, to resume, to pause, keep running – check, size out of stock, not in upload, running OK, keep paused. Downloads: full action report, new-articles report and a Flipkart upload CSV of the FSNs to add. Uploading a report also updates the pause register (all FSNs paused in Flipkart → "Paused"; running again → "Resumed").
