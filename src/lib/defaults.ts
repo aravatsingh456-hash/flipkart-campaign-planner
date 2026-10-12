@@ -8,6 +8,7 @@ export interface Settings {
   min_live_sizes: number;
   core_men: string[];
   core_women: string[];
+  allow_overlap: boolean; // true = an FSN can be in every campaign whose rules it matches
 }
 export interface Config { settings: Settings; campaigns: Campaign[] }
 
@@ -18,6 +19,7 @@ export const DEFAULT_SETTINGS: Settings = {
   min_live_sizes: 3,
   core_men: ["7", "8", "9", "10"],
   core_women: ["4", "5", "6", "7"],
+  allow_overlap: true,
 };
 
 const r = (vertical: string, mrp_from: number, mrp_to: number): CampaignRule => ({ vertical, mrp_from, mrp_to });

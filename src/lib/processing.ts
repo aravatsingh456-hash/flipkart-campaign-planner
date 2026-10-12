@@ -35,6 +35,7 @@ export function processInventory(rows: InvRow[], campaigns: Campaign[], s: Setti
   for (const camp of campaigns) {
     if (!camp.active) continue;
     const out: OutRow[] = [];
+    const seen = new Set<string>();
     const core = camp.gender === "Women" ? s.core_women : s.core_men;
     for (const rule of camp.rules) {
       const sub = rows.filter((r) => r.vertical === rule.vertical && r.mrp >= rule.mrp_from && r.mrp <= rule.mrp_to);
@@ -69,7 +70,9 @@ export function processInventory(rows: InvRow[], campaigns: Campaign[], s: Setti
       }
       for (const { row, qoh } of fsnAgg.values()) {
         if (qoh <= 0) continue;
-        const owner = fsnOwner.get(row.fsn);
+        if (seen.has(row.fsn)) continue;
+        seen.add(row.fsn);
+        const owner = s.allow_overlap === false ? fsnOwner.get(row.fsn) : undefined;
         if (owner) {
           if (owner !== camp.name) warnings.push(`FSN ${row.fsn} (${row.article_number}) matches "${owner}" and "${camp.name}" — kept in "${owner}".`);
           continue;

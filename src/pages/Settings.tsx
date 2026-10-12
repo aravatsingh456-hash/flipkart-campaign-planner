@@ -42,6 +42,10 @@ export default function SettingsPage({ s }: { s: AppState }) {
           <label>Core sizes – Men<br /><input key={"m"+sizesStr(draft.settings.core_men)} defaultValue={sizesStr(draft.settings.core_men)} onBlur={(e) => set((d) => { d.settings.core_men = parseSizes(e.target.value); })} /></label>
           <label>Core sizes – Women<br /><input key={"w"+sizesStr(draft.settings.core_women)} defaultValue={sizesStr(draft.settings.core_women)} onBlur={(e) => set((d) => { d.settings.core_women = parseSizes(e.target.value); })} /></label>
         </div>
+        <label className="row" style={{ marginTop: 12, color: "var(--ink)" }}>
+          <input type="checkbox" checked={draft.settings.allow_overlap !== false} onChange={(e) => set((d) => { d.settings.allow_overlap = e.target.checked; })} />
+          Allow the same FSN in more than one campaign (needed for Brand / Generic / Competitor campaigns that overlap the Auto campaigns)
+        </label>
       </div>
 
       <div className="card">
@@ -76,7 +80,7 @@ export default function SettingsPage({ s }: { s: AppState }) {
             <button className="btn small ghost" style={{ marginTop: 8, marginLeft: 12 }} onClick={() => set((d) => { d.campaigns[i].rules.push({ vertical: "", mrp_from: 0, mrp_to: 99999 }); })}>+ Add vertical</button>
           </div>
         ))}
-        <p className="muted">Campaign order matters: if an FSN fits two campaigns, it stays in the first one.</p>
+        <p className="muted">{draft.settings.allow_overlap === false ? "Campaign order matters: if an FSN fits two campaigns, it stays in the first one." : "Each campaign gets every FSN that matches its rules, even if another campaign has it too."}</p>
       </div>
 
       <div className="card">

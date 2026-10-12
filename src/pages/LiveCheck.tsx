@@ -39,12 +39,16 @@ export default function LiveCheckPage({ s, result }: { s: AppState; result: Proc
 
   async function runCheck() {
     if (!s.snapshot) return;
-    setRunning(true); setErr(""); setDone(0); setTotal(arts.length);
+    // the same article can sit in several campaigns: check each article once, then apply to every campaign
+    const byArt = new Map<string, Art[]>();
+    arts.forEach((a) => { const l = byArt.get(a.article) ?? []; l.push(a); byArt.set(a.article, l); });
+    const uniq = [...byArt.values()].map((l) => l[0]);
+    setRunning(true); setErr(""); setDone(0); setTotal(uniq.length);
     const prevId = s.runs[0]?.id;
     const results: ArticleCheck[] = [];
     try {
       const batches: Art[][] = [];
-      for (let i = 0; i < arts.length; i += BATCH) batches.push(arts.slice(i, i + BATCH));
+      for (let i = 0; i < uniq.length; i += BATCH) batches.push(uniq.slice(i, i + BATCH));
       const checkBatch = async (batch: Art[]) => {
         const req: CheckReq[] = batch.map((a) => ({
           article: a.article, itemId: a.itemId,
@@ -60,7 +64,7 @@ export default function LiveCheckPage({ s, result }: { s: AppState; result: Proc
       for (let b = 0; b < batches.length; b += PARALLEL) {
         const group = batches.slice(b, b + PARALLEL);
         const resGroup = await Promise.all(group.map(checkBatch));
-        group.forEach((batch, gi) => { const res = resGroup[gi]; batch.forEach((a, k) => {
+        group.forEach((batch, gi) => { const res = resGroup[gi]; batch.flatMap((u, k) => (byArt.get(u.article) ?? [u]).map((a) => [a, k] as const)).forEach(([a, k]) => {
           const r = res[k];
           if (!r.ok) { results.push({ campaign: a.campaign, article: a.article, model: a.model, color: a.color, status: "Check failed", liveSizes: [], http: r.http, error: r.error, oosFsns: [] }); return; }
           const live = [...new Set(r.sizes.filter((x) => x.inStock).map((x) => x.label))].sort((x, y) => parseFloat(x) - parseFloat(y));
@@ -178,7 +182,7 @@ export default function LiveCheckPage({ s, result }: { s: AppState; result: Proc
           <select value={scope} onChange={(e) => setScope(e.target.value)} disabled={running}>
             <option>All campaigns</option>{result.campaigns.map((c) => <option key={c.campaign.name}>{c.campaign.name}</option>)}
           </select>
-          <button className="btn" disabled={running || !arts.length} onClick={runCheck}>{running ? "Checking…" : `Run live stock check (${arts.length} articles)`}</button>
+          <button className="btn" disabled={running || !arts.length} onClick={runCheck}>{running ? "Checking…" : `Run live stock check (${new Set(arts.map((a) => a.article)).size} articles)`}</button>
         </div>
         {running && <div style={{ marginTop: 12 }}><div className="progress"><div style={{ width: `${total ? (done / total) * 100 : 0}%` }} /></div><p className="muted">{done} / {total} articles</p></div>}
         {err && <div className="alert bad" style={{ marginTop: 12 }}>{err}</div>}
