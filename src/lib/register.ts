@@ -55,3 +55,47 @@ export function applyRun(reg: Register, run: Run, checkedCampaigns: Set<string> 
 export const toPause = (reg: Register) => Object.values(reg).filter((e) => e.state === "To pause");
 export const paused = (reg: Register) => Object.values(reg).filter((e) => e.state === "Paused");
 export const canResume = (reg: Register) => paused(reg).filter((e) => e.latestStatus === "Active");
+
+/**
+ * Old campaign name → new name, for campaigns that were renamed in Settings.
+ * A campaign counts as renamed when its old name is gone and a new-named campaign has exactly the same rules
+ * (or, failing that, sits at the same position in the list with the same gender).
+ */
+export function renameMap(before: { name: string; gender: string; rules: unknown[] }[], after: { name: string; gender: string; rules: unknown[] }[]) {
+  const sig = (c: { gender: string; rules: unknown[] }) => `${c.gender}|${JSON.stringify(c.rules)}`;
+  const oldNames = new Set(before.map((c) => c.name));
+  const newNames = new Set(after.map((c) => c.name));
+  const map = new Map<string, string>();
+  for (const o of before) {
+    if (newNames.has(o.name)) continue;
+    const n = after.find((c) => !oldNames.has(c.name) && sig(c) === sig(o) && ![...map.values()].includes(c.name));
+    if (n) map.set(o.name, n.name);
+  }
+  // second pass: rules were also edited — fall back to the same position in the list (same gender)
+  before.forEach((o, i) => {
+    if (newNames.has(o.name) || map.has(o.name)) return;
+    const n = after[i];
+    if (n && n.gender === o.gender && !oldNames.has(n.name) && ![...map.values()].includes(n.name)) map.set(o.name, n.name);
+  });
+  return map;
+}
+
+/** Moves register entries of renamed campaigns to the new name. */
+export function renameInRegister(reg: Register, map: Map<string, string>): Register | null {
+  if (!map.size) return null;
+  let changed = false;
+  const next: Register = {};
+  for (const e of Object.values(reg)) {
+    const name = map.get(e.campaign) ?? e.campaign;
+    if (name !== e.campaign) changed = true;
+    const k = regKey(name, e.article);
+    const prev = next[k];
+    // if both old and new entries exist, keep the one that is further along (paused > to pause)
+    if (!prev || (prev.state === "To pause" && e.state !== "To pause")) next[k] = { ...e, campaign: name };
+  }
+  return changed ? next : null;
+}
+
+/** Applies renames to the campaign names inside a live check run (so statuses keep matching). */
+export const renameInRun = <T extends { results: { campaign: string }[] }>(run: T, map: Map<string, string>): T =>
+  map.size ? { ...run, results: run.results.map((r) => ({ ...r, campaign: map.get(r.campaign) ?? r.campaign })) } : run;

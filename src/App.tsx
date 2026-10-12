@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { DEFAULT_CONFIG, type Config } from "./lib/defaults";
 import { fromTuple, processInventory, type InvRow } from "./lib/processing";
 import { api, type Run, type RunMeta, type SnapshotMeta } from "./lib/api";
-import type { Register } from "./lib/register";
+import { renameInRegister, renameInRun, renameMap, type Register } from "./lib/register";
 import UploadPage from "./pages/Upload";
 import SettingsPage from "./pages/Settings";
 import CampaignsPage from "./pages/Campaigns";
@@ -45,7 +45,11 @@ export default function App({ switcher }: { switcher?: ReactNode }) {
     (async () => {
       try {
         const [cfg, snaps, rs, reg] = await Promise.all([api.getConfig(), api.listSnapshots(), api.listRuns(), api.getRegister().catch(() => ({}))]);
-        setRegisterState(reg ?? {});
+        // campaigns renamed in Settings before renames were tracked: map the default names to the renamed ones
+        const fix = cfg ? renameMap(DEFAULT_CONFIG.campaigns, cfg.campaigns) : new Map<string, string>();
+        const migrated = renameInRegister(reg ?? {}, fix);
+        if (migrated) await api.saveRegister(migrated);
+        setRegisterState(migrated ?? reg ?? {});
         if (cfg) setConfigState({ ...cfg, settings: { ...DEFAULT_CONFIG.settings, ...cfg.settings } });
         setSnapshots(snaps);
         setRuns(rs);
@@ -54,7 +58,7 @@ export default function App({ switcher }: { switcher?: ReactNode }) {
           setSnapshot(s.meta);
           setRows(s.rows.map(fromTuple));
         }
-        if (rs[0]) setLatestRun(await api.getRun(rs[0].id));
+        if (rs[0]) setLatestRun(renameInRun(await api.getRun(rs[0].id), fix));
       } catch (e) {
         setErr(`Could not load saved data: ${String(e)}`);
       } finally {
@@ -65,7 +69,22 @@ export default function App({ switcher }: { switcher?: ReactNode }) {
 
   const state: AppState = {
     config,
-    setConfig: async (c) => { setConfigState(c); await api.saveConfig(c); },
+    setConfig: async (c) => {
+      // keep the pause register, the latest live check and linked campaign reports on the new names
+      const map = renameMap(config.campaigns, c.campaigns);
+      setConfigState(c); await api.saveConfig(c);
+      if (!map.size) return;
+      const reg = renameInRegister(register, map);
+      if (reg) { setRegisterState(reg); await api.saveRegister(reg); }
+      if (latestRun) setLatestRun(renameInRun(latestRun, map));
+      const metas = await api.listReports().catch(() => []);
+      for (const m of metas) if (m.planner && map.has(m.planner)) {
+        const r = await api.getReport(m.id);
+        const next = { ...r, planner: map.get(m.planner)! };
+        const { rows: _r, check: _c, ...rest } = next;
+        await api.saveReport(next, { ...m, ...rest, planner: next.planner });
+      }
+    },
     snapshots,
     snapshot,
     rows,

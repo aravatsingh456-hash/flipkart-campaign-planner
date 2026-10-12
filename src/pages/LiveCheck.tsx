@@ -82,7 +82,7 @@ export default function LiveCheckPage({ s, result }: { s: AppState; result: Proc
       };
       // when checking one campaign, carry over other campaigns' last results so the latest run stays complete
       const prev = prevId ? await api.getRun(prevId).catch(() => null) : null;
-      if (scope !== "All campaigns" && prev) run.results.push(...prev.results.filter((r) => r.campaign !== scope));
+      if (scope !== "All campaigns" && prev) { const names = new Set(s.config.campaigns.map((c) => c.name)); run.results.push(...prev.results.filter((r) => r.campaign !== scope && names.has(r.campaign))); }
       await api.saveRun(run);
       s.addRun(run);
       await s.setRegister(applyRun(s.register, run, scope === "All campaigns" ? null : new Set([scope])));
